@@ -25,15 +25,51 @@ export class ReceiptParser {
 
     const data: ReceiptData = {
       rawText,
-      // TODO: Extract the following fields from rawText:
-      // - amount
-      // - subtotalAmount
-      // - taxAmount
-      // - taxPercentage
-      // - vendorName
-      // - invoiceNumber
-      // - date
     };
+
+    // Helper to clean and parse currency
+    const parseCurrency = (str: string) => {
+      const clean = str.replace(/[^0-9.]/g, '');
+      return parseFloat(clean);
+    };
+
+    // 1. Vendor Name (Simple heuristic: First non-empty line)
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length > 0) {
+      data.vendorName = lines[0];
+    }
+
+    // 2. Date
+    // Matches DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD
+    const dateMatch = rawText.match(/\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/);
+    if (dateMatch) {
+      data.date = dateMatch[0];
+    }
+
+    // 3. Invoice / Receipt Number
+    const invoiceMatch = rawText.match(/(?:invoice|factura|ticket|receipt)\s*#?[:.]?\s*([a-zA-Z0-9-]+)/i);
+    if (invoiceMatch) {
+      data.invoiceNumber = invoiceMatch[1];
+    }
+
+    // 4. Amounts (Total, Subtotal, Tax)
+    // Find "TOTAL" followed by currency
+    const totalMatch = rawText.match(/(?:TOTAL|AMOUNT DUE|PAGAR).*?[\$€£]?\s*([\d,]+\.?\d{2})/i);
+    if (totalMatch) {
+      data.amount = parseCurrency(totalMatch[1]);
+    } else {
+        // Fallback: Max number in text? Maybe risky. Let's stick to explicit label match for now.
+    }
+
+    const subtotalMatch = rawText.match(/(?:SUBTOTAL|SUB-TOTAL).*?[\$€£]?\s*([\d,]+\.?\d{2})/i);
+    if (subtotalMatch) {
+      data.subtotalAmount = parseCurrency(subtotalMatch[1]);
+    }
+
+    const taxMatch = rawText.match(/(?:TAX|IVA|IMPUESTO).*?[\$€£]?\s*([\d,]+\.?\d{2})/i);
+    if (taxMatch) {
+      data.taxAmount = parseCurrency(taxMatch[1]);
+    }
 
     return data;
   }

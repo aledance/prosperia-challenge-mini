@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs/promises';
 import path from 'path';
-import { v4 as uuidv4 } from 'crypto';
+import { randomUUID as uuidv4 } from 'crypto';
 import { logger } from '../config/logger.js';
 import { config } from '../config/env.js';
 import { getOcrProvider } from '../services/ocr.service.js';
@@ -45,16 +45,34 @@ router.post('/api/receipts', upload.single('file'), async (req: Request, res: Re
       throw new AppError(400, 'No file uploaded');
     }
 
-    // TODO: Implement the receipt upload logic
-    // Steps:
     // 1. Generate a unique ID for the receipt
-    // 2. Get OCR provider
-    // 3. Extract text from the uploaded file
-    // 4. Parse the text to extract receipt data
-    // 5. Store in the receipts map
-    // 6. Return the result
+    const id = uuidv4();
+    const filePath = req.file.path;
 
-    res.status(501).json({ error: 'TODO: Implement receipt upload endpoint' });
+    // 2. Get OCR provider
+    const ocrProvider = getOcrProvider(config.ocrProvider);
+
+    // 3. Extract text from the uploaded file
+    const rawText = await ocrProvider.extractText(filePath, req.file.mimetype);
+
+    // 4. Parse the text to extract receipt data
+    const parser = new ReceiptParser();
+    const parsedData = parser.parse(rawText);
+
+    // 5. Store in the receipts map
+    const receiptResult: ReceiptResult = {
+      id,
+      filename: req.file.originalname,
+      uploadedAt: new Date().toISOString(),
+      data: parsedData,
+    };
+    receipts.set(id, receiptResult);
+
+    // Clean up temp file
+    // await fs.unlink(filePath); // Optional: Clean up temp file immediately or via cron
+
+    // 6. Return the result
+    res.json(receiptResult);
   } catch (error) {
     logger.error(`[Receipt] Error uploading receipt: ${error}`);
     const appError = error instanceof AppError ? error : new AppError(500, 'Failed to process receipt');
