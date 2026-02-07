@@ -91,8 +91,8 @@ export class ReceiptParser {
     }
 
     // 7. Nombre del Cajero
-    // Busca "Cajero:" o "Cashier:" seguido de nombre
-    const cashierMatch = rawText.match(/(?:cajero|cashier|atendido por|server)[\s:.]*([a-zA-Z\s]{3,20})/i);
+    // Busca "Cajero:" o "Cashier:" seguido de nombre (solo letras y espacios, no saltos de línea)
+    const cashierMatch = rawText.match(/(?:cajero|cashier|atendido por|server)[\s:.]*([a-zA-Z ]{3,20})/i);
     if (cashierMatch) {
          data.cashierName = cashierMatch[1].trim();
     }

@@ -33,9 +33,9 @@ app.use((req, res) => {
 });
 
 // Error handler
-app.use((err: unknown, req: express.Request, res: express.Response) => {
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error(`[Error] ${err}`);
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 export default app;

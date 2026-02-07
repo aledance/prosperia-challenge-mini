@@ -32,49 +32,59 @@ const receipts = new Map<string, ReceiptResult>();
 /**
  * POST /api/receipts
  * Sube una imagen/PDF de recibo y extrae información.
- * 
- * Flujo:
- * 1. Valida la subida del archivo (Multer).
- * 2. Extrae texto usando el servicio de OCR (Tesseract / Ghostscript).
- * 3. Analiza el texto extraído (Parser) para obtener datos estructurados.
- * 4. Almacena el resultado en memoria.
- * 5. Retorna los datos parseados.
+ * Soporta múltiples archivos.
  */
-router.post('/api/receipts', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/api/receipts', upload.array('files'), async (req: Request, res: Response) => {
   try {
-    if (!req.file) {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
       throw new AppError(400, 'No se ha subido ningún archivo');
     }
 
-    // 1. Generar ID único para el recibo
-    const id = uuidv4();
-    const filePath = req.file.path;
+    const results: ReceiptResult[] = [];
+    const errors: any[] = [];
 
-    // 2. Obtener proveedor OCR (configurado en env)
-    const ocrProvider = getOcrProvider(config.ocrProvider);
+    // Procesar cada archivo en paralelo
+    await Promise.all(files.map(async (file) => {
+      try {
+        // 1. Generar ID único
+        const id = uuidv4();
+        const filePath = file.path;
 
-    // 3. Extraer texto del archivo subido
-    // El OCR detectará automáticamente si es imagen o PDF (y qué tipo de PDF)
-    const rawText = await ocrProvider.extractText(filePath, req.file.mimetype);
+        // 2. OCR
+        const ocrProvider = getOcrProvider(config.ocrProvider);
+        const rawText = await ocrProvider.extractText(filePath, file.mimetype);
 
-    // 4. Parsear el texto para obtener datos del recibo
-    const parser = new ReceiptParser();
-    const parsedData = parser.parse(rawText);
+        // 3. Parser
+        const parser = new ReceiptParser();
+        const parsedData = parser.parse(rawText);
 
-    // 5. Almacenar el resultado en el mapa en memoria
-    const receiptResult: ReceiptResult = {
-      id,
-      filename: req.file.originalname,
-      uploadedAt: new Date().toISOString(),
-      data: parsedData,
-    };
-    receipts.set(id, receiptResult);
+        // 4. Guardar
+        const receiptResult: ReceiptResult = {
+          id,
+          filename: file.originalname,
+          uploadedAt: new Date().toISOString(),
+          data: parsedData,
+        };
+        receipts.set(id, receiptResult);
+        results.push(receiptResult);
+        
+        // Limpieza (opcional)
+        // await fs.unlink(filePath);
+      } catch (err) {
+        logger.error(`[Receipt] Error processing file ${file.originalname}: ${err}`);
+        errors.push({ filename: file.originalname, error: err instanceof Error ? err.message : 'Unknown error' });
+      }
+    }));
 
-    // Limpieza de archivo temporal
-    // await fs.unlink(filePath); // Opcional: Limpiar inmediatamente o via cron
+    if (results.length === 0 && errors.length > 0) {
+        // Fallaron todos
+        throw new AppError(500, `Failed to process files. Errors: ${JSON.stringify(errors)}`);
+    }
 
-    // 6. Retornar el resultado
-    res.json(receiptResult);
+    // Retornamos resultados exitosos y errores si los hubo (207 Multi-Status podría ser, pero 200 con detalles es más simple)
+    res.json({ results, errors });
+    
   } catch (error) {
     logger.error(`[Receipt] Error uploading receipt: ${error}`);
     const appError = error instanceof AppError ? error : new AppError(500, 'Failed to process receipt');

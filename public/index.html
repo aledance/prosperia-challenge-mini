@@ -227,8 +227,8 @@
       <div class="upload-area" id="uploadArea">
         <div class="upload-icon">📷</div>
         <div class="upload-text">Drag & drop or click to upload</div>
-        <div class="upload-hint">PNG, JPG, or PDF (max 10MB)</div>
-        <input type="file" id="fileInput" accept="image/png,image/jpeg,application/pdf" />
+        <div class="upload-hint">PNG, JPG, or PDF (max 10MB). Multiple files supported.</div>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,application/pdf" multiple />
       </div>
       
       <button type="submit">Extract Receipt Data</button>
@@ -330,9 +330,12 @@
       }
 
       const formData = new FormData();
-      formData.append('file', fileInput.files[0]);
+      // Changed 'file' to 'files' for multiple upload and iterate
+      for (let i = 0; i < fileInput.files.length; i++) {
+        formData.append('files', fileInput.files[i]);
+      }
 
-      showStatus('Processing receipt... This may take a moment.', 'loading');
+      showStatus(`Processing ${fileInput.files.length} receipt(s)... This may take a moment.`, 'loading');
       result.classList.remove('show');
 
       try {
@@ -348,11 +351,37 @@
         }
 
         const data = await response.json();
-        showStatus('Receipt extracted successfully!', 'success');
         
-        currentReceiptData = data.data; // Save for download
-        saveToHistory(data.data);
-        displayResult(data.data);
+        let successCount = 0;
+        let errorCount = 0;
+        const results = data.results || [];
+        const errors = data.errors || [];
+        
+        if (results.length > 0) {
+            successCount = results.length;
+            // Add all to history
+            // Reverse so they appear in order in the list (newest first is handled by unshift in saveToHistory)
+             // actually we want to add them one by one.
+            results.forEach(r => saveToHistory(r.data));
+            
+            // Display the first one
+            currentReceiptData = results[0].data;
+            displayResult(currentReceiptData);
+        }
+        
+        if (errors.length > 0) {
+            errorCount = errors.length;
+            console.error('Errors:', errors);
+        }
+
+        if (successCount > 0) {
+            let msg = `Successfully processed ${successCount} receipt(s).`;
+            if (errorCount > 0) msg += ` (${errorCount} failed)`;
+            showStatus(msg, 'success');
+        } else {
+             showStatus(`Failed to process files. ${errorCount} errors. Check console.`, 'error');
+        }
+
       } catch (error) {
         showStatus(`Error: ${error.message}`, 'error');
       }
