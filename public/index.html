@@ -188,6 +188,34 @@
       color: #333;
       white-space: pre-wrap;
     }
+    .btn-group {
+      margin-top: 15px;
+      display: flex;
+      gap: 10px;
+    }
+    .btn-secondary {
+      background: #f8f9fa;
+      color: #333;
+      border: 1px solid #ddd;
+    }
+    .history-section {
+      margin-top: 30px;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+    }
+    .history-item {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+    }
+    .history-item:hover {
+      background: #f8f9fa;
+    }
   </style>
 </head>
 <body>
@@ -223,6 +251,18 @@
         <span class="result-value" id="date">-</span>
       </div>
       <div class="result-row">
+        <span class="result-label">Time:</span>
+        <span class="result-value" id="time">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Payment Method:</span>
+        <span class="result-value" id="paymentMethod">-</span>
+      </div>
+      <div class="result-row">
+        <span class="result-label">Cashier:</span>
+        <span class="result-value" id="cashierName">-</span>
+      </div>
+      <div class="result-row">
         <span class="result-label">Subtotal:</span>
         <span class="result-value" id="subtotal">-</span>
       </div>
@@ -238,7 +278,16 @@
         <span class="result-label"><strong>Total:</strong></span>
         <span class="result-value"><strong id="total">-</strong></span>
       </div>
+      <div class="btn-group">
+        <button type="button" class="btn-secondary" id="btnDownloadJSON">Download JSON</button>
+        <button type="button" class="btn-secondary" id="btnDownloadCSV">Download CSV</button>
+      </div>
       <div class="raw-text" id="rawText"></div>
+    </div>
+    
+    <div class="history-section">
+      <div class="result-title">Receipt History</div>
+      <div id="historyList"></div>
     </div>
   </div>
 
@@ -248,6 +297,14 @@
     const uploadForm = document.getElementById('uploadForm');
     const status = document.getElementById('status');
     const result = document.getElementById('result');
+    const historyList = document.getElementById('historyList');
+    const btnDownloadJSON = document.getElementById('btnDownloadJSON');
+    const btnDownloadCSV = document.getElementById('btnDownloadCSV');
+
+    let currentReceiptData = null;
+
+    // Load history on startup
+    renderHistory();
 
     // Drag and drop
     uploadArea.addEventListener('click', () => fileInput.click());
@@ -292,11 +349,43 @@
 
         const data = await response.json();
         showStatus('Receipt extracted successfully!', 'success');
+        
+        currentReceiptData = data.data; // Save for download
+        saveToHistory(data.data);
         displayResult(data.data);
       } catch (error) {
         showStatus(`Error: ${error.message}`, 'error');
       }
     });
+
+    // Download handlers
+    btnDownloadJSON.addEventListener('click', () => {
+      if (!currentReceiptData) return;
+      const blob = new Blob([JSON.stringify(currentReceiptData, null, 2)], { type: 'application/json' });
+      downloadBlob(blob, 'receipt.json');
+    });
+
+    btnDownloadCSV.addEventListener('click', () => {
+      if (!currentReceiptData) return;
+      const headers = Object.keys(currentReceiptData).filter(k => k !== 'rawText').join(',');
+      const values = Object.keys(currentReceiptData)
+        .filter(k => k !== 'rawText')
+        .map(k => currentReceiptData[k])
+        .map(v => `"${v}"`).join(',');
+        
+      const csv = `${headers}\n${values}`;
+      const blob = new Blob([csv], { type: 'text/csv' });
+      downloadBlob(blob, 'receipt.csv');
+    });
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
 
     function showStatus(message, type) {
       status.textContent = message;
@@ -307,12 +396,61 @@
       document.getElementById('vendorName').textContent = data.vendorName || '-';
       document.getElementById('invoiceNumber').textContent = data.invoiceNumber || '-';
       document.getElementById('date').textContent = data.date || '-';
+      document.getElementById('time').textContent = data.time || '-';
+      document.getElementById('paymentMethod').textContent = data.paymentMethod || '-';
+      document.getElementById('cashierName').textContent = data.cashierName || '-';
+      
       document.getElementById('subtotal').textContent = data.subtotalAmount ? `$${data.subtotalAmount.toFixed(2)}` : '-';
       document.getElementById('taxPercentage').textContent = data.taxPercentage ? `${data.taxPercentage}%` : '-';
       document.getElementById('taxAmount').textContent = data.taxAmount ? `$${data.taxAmount.toFixed(2)}` : '-';
       document.getElementById('total').textContent = data.amount ? `$${data.amount.toFixed(2)}` : '-';
       document.getElementById('rawText').textContent = data.rawText;
       result.classList.add('show');
+    }
+
+    // History Functions
+    function saveToHistory(data) {
+        const history = JSON.parse(localStorage.getItem('receiptHistory') || '[]');
+        // Add timestamp and simple ID
+        const item = { ...data, _savedAt: new Date().toISOString() };
+        history.unshift(item); // Add to top
+        // Keep last 10
+        if (history.length > 10) history.pop();
+        localStorage.setItem('receiptHistory', JSON.stringify(history));
+        renderHistory();
+    }
+
+    function renderHistory() {
+        const history = JSON.parse(localStorage.getItem('receiptHistory') || '[]');
+        historyList.innerHTML = '';
+        
+        if (history.length === 0) {
+           historyList.innerHTML = '<p style="color: #999; font-size: 14px; padding: 10px;">No receipts scanned yet.</p>';
+           return;
+        }
+
+        history.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = 'history-item';
+            const date = new Date(item._savedAt).toLocaleDateString();
+            const time = new Date(item._savedAt).toLocaleTimeString();
+            const amount = item.amount ? `$${item.amount.toFixed(2)}` : 'N/A';
+            const vendor = item.vendorName || 'Unknown Vendor';
+            
+            div.innerHTML = `
+                <div><strong>${vendor}</strong> <span style="font-size: 12px; color: #666;">(${date} ${time})</span></div>
+                <div style="font-weight: bold; color: #2e7d32;">${amount}</div>
+            `;
+            
+            div.addEventListener('click', () => {
+                currentReceiptData = item;
+                displayResult(item);
+                // Scroll to result
+                result.scrollIntoView({ behavior: 'smooth' });
+            });
+            
+            historyList.appendChild(div);
+        });
     }
   </script>
 </body>

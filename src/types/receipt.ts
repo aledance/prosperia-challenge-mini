@@ -7,6 +7,9 @@ export interface ReceiptData {
   vendorName?: string;
   invoiceNumber?: string;
   date?: string;
+  paymentMethod?: string;
+  cashierName?: string;
+  time?: string;
 }
 
 export interface ReceiptResult {

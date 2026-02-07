@@ -70,6 +70,33 @@ export class ReceiptParser {
       data.taxAmount = parseCurrency(taxMatch[1]);
     }
 
+    // 5. Hora
+    // Busca patrones de hora HH:MM o HH:MM:SS
+    const timeMatch = rawText.match(/(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:AM|PM)?/i);
+    if (timeMatch) {
+      data.time = timeMatch[0];
+    }
+
+    // 6. Método de Pago
+    const paymentKeywords = {
+      'CASH': ['efectivo', 'cash', 'contado'],
+      'CREDIT_CARD': ['visa', 'mastercard', 'amex', 'tarjeta', 'credit', 'debito'],
+    };
+
+    for (const [method, keywords] of Object.entries(paymentKeywords)) {
+      if (keywords.some(k => rawText.toLowerCase().includes(k))) {
+        data.paymentMethod = method;
+        break; 
+      }
+    }
+
+    // 7. Nombre del Cajero
+    // Busca "Cajero:" o "Cashier:" seguido de nombre
+    const cashierMatch = rawText.match(/(?:cajero|cashier|atendido por|server)[\s:.]*([a-zA-Z\s]{3,20})/i);
+    if (cashierMatch) {
+         data.cashierName = cashierMatch[1].trim();
+    }
+
     return data;
   }
 }
