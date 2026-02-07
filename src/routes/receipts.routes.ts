@@ -31,35 +31,37 @@ const receipts = new Map<string, ReceiptResult>();
 
 /**
  * POST /api/receipts
- * Upload a receipt image/PDF and extract information
- * TODO: Implement the endpoint
- * 1. Validate file upload
- * 2. Extract text using OCR
- * 3. Parse the extracted text
- * 4. Store the result
- * 5. Return the parsed data
+ * Sube una imagen/PDF de recibo y extrae información.
+ * 
+ * Flujo:
+ * 1. Valida la subida del archivo (Multer).
+ * 2. Extrae texto usando el servicio de OCR (Tesseract / Ghostscript).
+ * 3. Analiza el texto extraído (Parser) para obtener datos estructurados.
+ * 4. Almacena el resultado en memoria.
+ * 5. Retorna los datos parseados.
  */
 router.post('/api/receipts', upload.single('file'), async (req: Request, res: Response) => {
   try {
     if (!req.file) {
-      throw new AppError(400, 'No file uploaded');
+      throw new AppError(400, 'No se ha subido ningún archivo');
     }
 
-    // 1. Generate a unique ID for the receipt
+    // 1. Generar ID único para el recibo
     const id = uuidv4();
     const filePath = req.file.path;
 
-    // 2. Get OCR provider
+    // 2. Obtener proveedor OCR (configurado en env)
     const ocrProvider = getOcrProvider(config.ocrProvider);
 
-    // 3. Extract text from the uploaded file
+    // 3. Extraer texto del archivo subido
+    // El OCR detectará automáticamente si es imagen o PDF (y qué tipo de PDF)
     const rawText = await ocrProvider.extractText(filePath, req.file.mimetype);
 
-    // 4. Parse the text to extract receipt data
+    // 4. Parsear el texto para obtener datos del recibo
     const parser = new ReceiptParser();
     const parsedData = parser.parse(rawText);
 
-    // 5. Store in the receipts map
+    // 5. Almacenar el resultado en el mapa en memoria
     const receiptResult: ReceiptResult = {
       id,
       filename: req.file.originalname,
@@ -68,10 +70,10 @@ router.post('/api/receipts', upload.single('file'), async (req: Request, res: Re
     };
     receipts.set(id, receiptResult);
 
-    // Clean up temp file
-    // await fs.unlink(filePath); // Optional: Clean up temp file immediately or via cron
+    // Limpieza de archivo temporal
+    // await fs.unlink(filePath); // Opcional: Limpiar inmediatamente o via cron
 
-    // 6. Return the result
+    // 6. Retornar el resultado
     res.json(receiptResult);
   } catch (error) {
     logger.error(`[Receipt] Error uploading receipt: ${error}`);
@@ -82,7 +84,7 @@ router.post('/api/receipts', upload.single('file'), async (req: Request, res: Re
 
 /**
  * GET /api/receipts/:id
- * Retrieve a previously processed receipt
+ * Recupera un recibo procesado previamente por su ID.
  */
 router.get('/api/receipts/:id', (req: Request, res: Response) => {
   try {
@@ -90,13 +92,13 @@ router.get('/api/receipts/:id', (req: Request, res: Response) => {
     const receipt = receipts.get(id);
 
     if (!receipt) {
-      throw new AppError(404, 'Receipt not found');
+      throw new AppError(404, 'Recibo no encontrado');
     }
 
     res.json(receipt);
   } catch (error) {
-    logger.error(`[Receipt] Error fetching receipt: ${error}`);
-    const appError = error instanceof AppError ? error : new AppError(500, 'Failed to fetch receipt');
+    logger.error(`[Receipt] Error obteniendo recibo: ${error}`);
+    const appError = error instanceof AppError ? error : new AppError(500, 'Fallo al obtener el recibo');
     res.status(appError.statusCode).json({ error: appError.message });
   }
 });

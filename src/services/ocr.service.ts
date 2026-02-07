@@ -13,80 +13,100 @@ export interface OcrProvider {
 }
 
 export class TesseractOcr implements OcrProvider {
+  /**
+   * Extrae texto de una imagen o PDF.
+   * Utiliza una estrategia híbrida para PDFs:
+   * 1. Extracción Nativa (pdf-parse) -> Rápido y preciso para facturas digitales.
+   * 2. Fallback a Ghostscript + Tesseract -> Robusto para facturas escaneadas (imágenes).
+   * 
+   * @param imagePath Ruta absoluta al archivo
+   * @param mimeType (Opcional) Tipo MIME para identificar PDFs
+   */
   async extractText(imagePath: string, mimeType?: string): Promise<string> {
-    logger.info(`[OCR] Extracting text from ${imagePath} using Tesseract...`);
+    logger.info(`[OCR] Extrayendo texto de ${imagePath} usando Tesseract...`);
 
     try {
-      // Check if file is PDF (by extension or mimetype)
+      // Verificar si el archivo es un PDF (por extensión o tipo mime)
       const isPdf = imagePath.toLowerCase().endsWith('.pdf') || mimeType === 'application/pdf';
 
       if (isPdf) {
-        logger.info('[OCR] Detected PDF. Strategy: 1. Try native extract. 2. Fallback to Ghostscript OCR.');
+        logger.info('[OCR] PDF detectado. Estrategia: 1. Intento nativo. 2. Fallback a Ghostscript.');
         
-        // Strategy 1: Native Extraction (Fast)
+        // --- Estrategia 1: Extracción Nativa (Rápida) ---
+        // Ideal para: Archivos PDF generados digitalmente (facturas electrónicas)
+        // Ventaja: Ejecución en milisegundos, precisión del 100% en caracteres.
         try {
             const dataBuffer = await fs.readFile(imagePath);
-            const uint8Array = new Uint8Array(dataBuffer);
+            const uint8Array = new Uint8Array(dataBuffer); // pdf-parse maneja mejor Uint8Array que Buffer
             const parser = new PDFParse(uint8Array);
             const data = await parser.getText();
             
+            // Heurística: Si obtenemos texto razonable (>50 caracteres), probablemente es digital.
+            // Si son <50 caracteres, probablemente sea un escaneo (PDF que solo contiene una imagen).
             if (data.text && data.text.trim().length > 50) {
-                logger.info('[OCR] Native PDF extraction successful.');
+                logger.info('[OCR] Extracción nativa de PDF exitosa.');
                 return data.text;
             }
-            logger.warn('[OCR] Native extraction yielded empty/short text. Trying Ghostscript fallback...');
+            logger.warn('[OCR] La extracción nativa devolvió texto vacío o muy corto. Intentando fallback con Ghostscript...');
         } catch (e) {
-            logger.warn(`[OCR] Native extraction failed: ${e}. Trying fallback...`);
+            logger.warn(`[OCR] Falló la extracción nativa: ${e}. Intentando fallback...`);
         }
 
-        // Strategy 2: Ghostscript -> Image -> Tesseract (Slower but robust for scans)
+        // --- Estrategia 2: Ghostscript -> Imagen -> Tesseract (Lenta pero robusta) ---
+        // Ideal para: Recibos escaneados (Fotos pegadas en un PDF)
+        // Proceso: Convierte las páginas del PDF a imágenes PNG y luego aplica OCR.
         return await this.processPdfWithGhostscript(imagePath);
       }
 
+      // --- OCR Estándar para Imágenes (JPG/PNG) ---
       const result = await Tesseract.recognize(imagePath, 'eng+spa');
       return result.data.text;
     } catch (error) {
-      logger.error(`[OCR] Error extracting text: ${error}`);
+      logger.error(`[OCR] Error extrayendo texto: ${error}`);
       throw error;
     }
   }
 
+  /**
+   * Maneja PDFs escaneados convirtiendo las páginas a imágenes usando Ghostscript,
+   * luego ejecutando Tesseract en cada imagen de página.
+   */
   private async processPdfWithGhostscript(pdfPath: string): Promise<string> {
     const outputPrefix = `${pdfPath}_gs`;
-    // Use Ghostscript to convert PDF to PNG (300 DPI for better OCR)
-    // -sDEVICE=pngalpha : PNG with transparency
-    // -r300 : 300 DPI resolution
-    // -o : Output filename pattern (%d for page number)
+    // Desglose del comando Ghostscript:
+    // -dSAFER -dBATCH -dNOPAUSE: Flags estándar de producción
+    // -sDEVICE=png16m: Salida como PNG de 24-bits (mejor para OCR)
+    // -r300: Resolución de 300 DPI (Óptima para precisión de Tesseract)
     const cmd = `gs -dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r300 -o "${outputPrefix}_%d.png" "${pdfPath}"`;
     
     try {
-        logger.info('[OCR] Running Ghostscript conversion...');
+        logger.info('[OCR] Ejecutando conversión con Ghostscript...');
         await execAsync(cmd);
         
-        // Find generated images
+        // Buscar las imágenes generadas
         const dir = path.dirname(pdfPath);
         const files = await fs.readdir(dir);
         const pageImages = files
             .filter(f => f.startsWith(path.basename(outputPrefix)) && f.endsWith('.png'))
-            .sort() // Ensure page order
+            .sort() // Asegurar orden de páginas
             .map(f => path.join(dir, f));
 
-        logger.info(`[OCR] Converted PDF to ${pageImages.length} images.`);
+        logger.info(`[OCR] PDF convertido a ${pageImages.length} imágenes.`);
         
         const texts: string[] = [];
         for (const imgPath of pageImages) {
-            logger.info(`[OCR] Processing page image: ${imgPath}`);
+            logger.info(`[OCR] Procesando imagen de página: ${imgPath}`);
             const result = await Tesseract.recognize(imgPath, 'eng+spa');
             texts.push(result.data.text);
             
-            // Cleanup image immediately
+            // Limpiar imagen temporal inmediatamente después del uso
             await fs.unlink(imgPath).catch(() => {});
         }
         
-        return texts.join('\n\n--- PAGE BREAK ---\n\n');
+        return texts.join('\n\n--- SALTO DE PÁGINA ---\n\n');
     } catch (error) {
-        logger.error(`[OCR] Ghostscript conversion failed: ${error}`);
-        throw new Error('Failed to process scanned PDF.');
+        logger.error(`[OCR] Falló la conversión de Ghostscript: ${error}`);
+        throw new Error('Fallo al procesar PDF escaneado.');
     }
   }
 }

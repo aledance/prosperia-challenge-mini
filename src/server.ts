@@ -5,16 +5,16 @@ import fs from 'fs/promises';
 
 const startServer = async () => {
   try {
-    // Create upload directory if it doesn't exist
+    // Crear directorio de uploads si no existe
     await fs.mkdir(config.uploadDir, { recursive: true });
 
     app.listen(config.port, () => {
-      logger.info(`[Server] 🚀 Server running on http://localhost:${config.port}`);
-      logger.info(`[Server] OCR Provider: ${config.ocrProvider}`);
-      logger.info(`[Server] Environment: ${config.nodeEnv}`);
+      logger.info(`[Server] 🚀 Servidor corriendo en http://localhost:${config.port}`);
+      logger.info(`[Server] Proveedor OCR: ${config.ocrProvider}`);
+      logger.info(`[Server] Ambiente: ${config.nodeEnv}`);
     });
   } catch (error) {
-    logger.error(`[Server] Failed to start: ${error}`);
+    logger.error(`[Server] Fallo al iniciar: ${error}`);
     process.exit(1);
   }
 };
