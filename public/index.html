@@ -323,7 +323,10 @@
     </div>
     
     <div class="history-section">
-      <div class="result-title">Receipt History</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div class="result-title" style="margin-bottom: 0;">Receipt History</div>
+        <button type="button" id="btnClearHistory" style="width: auto; padding: 6px 12px; font-size: 12px; background: #fff0f0; color: #d32f2f; border: 1px solid #ffcdd2; margin: 0;">Clear</button>
+      </div>
       <div id="historyList"></div>
     </div>
   </div>
@@ -342,6 +345,7 @@
     
     const btnDownloadJSON = document.getElementById('btnDownloadJSON');
     const btnDownloadCSV = document.getElementById('btnDownloadCSV');
+    const btnClearHistory = document.getElementById('btnClearHistory');
 
     let currentReceiptData = null;
 
@@ -481,6 +485,18 @@
       const csv = `${headers}\n${values}`;
       const blob = new Blob([csv], { type: 'text/csv' });
       downloadBlob(blob, 'receipt.csv');
+    });
+
+    // Clear History Handler
+    btnClearHistory.addEventListener('click', () => {
+        if (!localStorage.getItem('receiptHistory')) return;
+        
+        if (confirm('Are you sure you want to delete all receipt history?')) {
+            localStorage.removeItem('receiptHistory');
+            renderHistory();
+            // Optional: clear the current result view too if you want, 
+            // but keeping it visible is fine as it's separate from history list.
+        }
     });
 
     function downloadBlob(blob, filename) {
