@@ -216,6 +216,33 @@
     .history-item:hover {
       background: #f8f9fa;
     }
+    
+    /* Progress Bar Styles */
+    .progress-container {
+      display: none;
+      margin-top: 20px;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 8px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.3s ease;
+    }
+    .progress-text {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #666;
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -233,6 +260,16 @@
       
       <button type="submit">Extract Receipt Data</button>
     </form>
+    
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBarFill"></div>
+      </div>
+      <div class="progress-text">
+        <span id="progressMessage">Processing...</span>
+        <span id="progressPercent">0%</span>
+      </div>
+    </div>
     
     <div class="status" id="status"></div>
     
@@ -298,6 +335,11 @@
     const status = document.getElementById('status');
     const result = document.getElementById('result');
     const historyList = document.getElementById('historyList');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBarFill = document.getElementById('progressBarFill');
+    const progressPercent = document.getElementById('progressPercent');
+    const progressMessage = document.getElementById('progressMessage');
+    
     const btnDownloadJSON = document.getElementById('btnDownloadJSON');
     const btnDownloadCSV = document.getElementById('btnDownloadCSV');
 
@@ -306,20 +348,11 @@
     // Load history on startup
     renderHistory();
 
-    // Drag and drop
+    // Drag and drop events (omitted for brevity)
     uploadArea.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      uploadArea.classList.add('dragover');
-    });
-    uploadArea.addEventListener('dragleave', () => {
-      uploadArea.classList.remove('dragover');
-    });
-    uploadArea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      uploadArea.classList.remove('dragover');
-      fileInput.files = e.dataTransfer.files;
-    });
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => { uploadArea.classList.remove('dragover'); });
+    uploadArea.addEventListener('drop', (e) => { e.preventDefault(); uploadArea.classList.remove('dragover'); fileInput.files = e.dataTransfer.files; });
 
     uploadForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -330,13 +363,14 @@
       }
 
       const formData = new FormData();
-      // Changed 'file' to 'files' for multiple upload and iterate
       for (let i = 0; i < fileInput.files.length; i++) {
         formData.append('files', fileInput.files[i]);
       }
 
-      showStatus(`Processing ${fileInput.files.length} receipt(s)... This may take a moment.`, 'loading');
+      // Reset UI
+      status.style.display = 'none';
       result.classList.remove('show');
+      startProgressAnimation();
 
       try {
         const response = await fetch('/api/receipts', {
@@ -344,14 +378,23 @@
           body: formData,
         });
 
+        // Set progress to 100% just before processing response
+        updateProgress(100);
+
         if (!response.ok) {
           const error = await response.json();
-          showStatus(`Error: ${error.error}`, 'error');
+          await new Promise(r => setTimeout(r, 500)); // Small delay to see 100%
+          hideProgress();
+          showStatus(`Error: ${error.error || error.message}`, 'error');
           return;
         }
 
         const data = await response.json();
         
+        // Wait a bit to show 100% completed
+        await new Promise(r => setTimeout(r, 600));
+        hideProgress();
+
         let successCount = 0;
         let errorCount = 0;
         const results = data.results || [];
@@ -359,9 +402,7 @@
         
         if (results.length > 0) {
             successCount = results.length;
-            // Add all to history
-            // Reverse so they appear in order in the list (newest first is handled by unshift in saveToHistory)
-             // actually we want to add them one by one.
+            // Add individually to history
             results.forEach(r => saveToHistory(r.data));
             
             // Display the first one
@@ -369,25 +410,60 @@
             displayResult(currentReceiptData);
         }
         
-        if (errors.length > 0) {
-            errorCount = errors.length;
-            console.error('Errors:', errors);
-        }
+        if (errors.length > 0) errorCount = errors.length;
 
         if (successCount > 0) {
             let msg = `Successfully processed ${successCount} receipt(s).`;
             if (errorCount > 0) msg += ` (${errorCount} failed)`;
             showStatus(msg, 'success');
         } else {
-             showStatus(`Failed to process files. ${errorCount} errors. Check console.`, 'error');
+             showStatus(`Failed to process files. ${errorCount} errors.`, 'error');
         }
 
       } catch (error) {
+        hideProgress();
         showStatus(`Error: ${error.message}`, 'error');
       }
     });
 
-    // Download handlers
+    // Progress Simulation Logic
+    let progressInterval;
+    function startProgressAnimation() {
+        progressContainer.style.display = 'block';
+        updateProgress(0);
+        
+        let progress = 0;
+        // Animation logic: Fast at first, slows down as it gets higher
+        progressInterval = setInterval(() => {
+            if (progress < 30) progress += Math.random() * 5;      // 0-30%: Fast
+            else if (progress < 60) progress += Math.random() * 2; // 30-60%: Medium
+            else if (progress < 85) progress += Math.random() * 0.5; // 60-85%: Slow
+            else if (progress < 95) progress += 0.1;               // 85-95%: Crawl
+            
+            // Cap at 95% until real response comes back
+            if (progress > 95) progress = 95;
+            
+            updateProgress(progress);
+        }, 200);
+    }
+
+    function updateProgress(value) {
+        const pct = Math.min(100, Math.max(0, value));
+        progressBarFill.style.width = `${pct}%`;
+        progressPercent.textContent = `${Math.round(pct)}%`;
+        
+        if (pct < 30) progressMessage.textContent = "Uploading files...";
+        else if (pct < 60) progressMessage.textContent = "Scanning document (AI OCR)...";
+        else if (pct < 90) progressMessage.textContent = "Extracting data...";
+        else if (pct >= 100) progressMessage.textContent = "Done!";
+    }
+
+    function hideProgress() {
+        clearInterval(progressInterval);
+        progressContainer.style.display = 'none';
+    }
+
+    // Download handlers (unchanged)
     btnDownloadJSON.addEventListener('click', () => {
       if (!currentReceiptData) return;
       const blob = new Blob([JSON.stringify(currentReceiptData, null, 2)], { type: 'application/json' });
