@@ -38,7 +38,14 @@ export class TesseractOcr implements OcrProvider {
         try {
             const dataBuffer = await fs.readFile(imagePath);
             const uint8Array = new Uint8Array(dataBuffer); // pdf-parse maneja mejor Uint8Array que Buffer
-            const parser = new PDFParse(uint8Array);
+            
+            // Configurar ruta a fuentes estándar para evitar error de pdfjs-dist
+            const standardFontDataUrl = path.join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/');
+            
+            const parser = new PDFParse({
+              data: uint8Array,
+              standardFontDataUrl
+            });
             const data = await parser.getText();
             
             // Heurística: Si obtenemos texto razonable (>50 caracteres), probablemente es digital.
